@@ -512,6 +512,7 @@
                     resetVariables();
                 } else {
                     console.log('Connecting...');
+                    connectToggle.checked = true;
                     progress.hidden = false;
                     if (writeCharacteristic == null) {
                         navigator.bluetooth.requestDevice({
