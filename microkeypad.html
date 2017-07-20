@@ -1,0 +1,570 @@
+<html>
+
+<head>
+    <title>BBC micro:bit Keypad</title>
+    <meta name="description" content="BBC micro:bit Keypad">
+
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+    <meta name="viewport" content="width=device-width, minimum-scale=1.0, initial-scale=1, user-scalable=yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+
+
+    <script src="./web/bower_components/webcomponentsjs/webcomponents-lite.min.js"></script>
+
+    <!-- Polymer components -->
+    <link rel="import" href="./web/bower_components/paper-progress/paper-progress.html">
+    <link rel="import" href="./web/bower_components/paper-button/paper-button.html">
+    <link rel="import" href="./web/bower_components/iron-icons/iron-icons.html">
+    <link rel="import" href="./web/bower_components/iron-icons/image-icons.html">
+    <link rel="import" href="./web/bower_components/paper-icon-button/paper-icon-button.html">
+    <link rel="import" href="./web/bower_components/paper-card/paper-card.html">
+    <link rel="import" href="./web/bower_components/paper-dialog/paper-dialog.html">
+    <link rel="import" href="./web/bower_components/paper-toggle-button/paper-toggle-button.html">
+    <link rel="import" href="./web/bower_components/iron-flex-layout/iron-flex-layout.html">
+
+    <link rel="import" href="./web/bower_components/paper-dialog/paper-dialog.html">
+    <link rel="import" href="./web/bower_components/paper-button/paper-button.html">
+    <link rel="import" href="./web/bower_components/paper-input/paper-input.html">
+
+    <link rel="import" href="./web/bower_components/paper-styles/color.html">
+    <link rel="stylesheet" href="./web/bower_components/paper-styles/demo.css">
+
+    <style is="custom-style">
+        body {
+            background-color: var(--paper-grey-50);
+        }
+
+        paper-progress {
+            width: 100%;
+        }
+
+        paper-progress.blue {
+            paper-progress-active-color: var(--paper-light-blue-500);
+            paper-progress-secondary-color: var(--paper-light-blue-100);
+        }
+
+        paper-toggle-button.blue {
+            --paper-toggle-button-checked-bar-color: var(--paper-light-blue-500);
+            --paper-toggle-button-checked-button-color: var(--paper-light-blue-500);
+            --paper-toggle-button-checked-ink-color: var(--paper-light-blue-500);
+            --paper-toggle-button-unchecked-bar-color: var(--paper-light-blue-900);
+            --paper-toggle-button-unchecked-button-color: var(--paper-light-blue-900);
+            --paper-toggle-button-unchecked-ink-color: var(--paper-light-blue-900);
+        }
+
+        paper-button {
+            display: block;
+            width: 140px;
+            height: 40px;
+            min-width: 0em;
+            margin: 0.2em 0.2em;
+        }
+
+        paper-button.blue {
+            color: var(--paper-light-blue-500);
+            paper-button-flat-focus-color: var(--paper-light-blue-50);
+        }
+
+        #cards {
+            margin-left: auto;
+            margin-right: auto;
+            max-width: 400px;
+        }
+
+        paper-card {
+            margin-bottom: 5px;
+            margin-top: 5px;
+            width: 100%;
+        }
+
+        .flex {
+            @apply(--layout-horizontal);
+        }
+
+        paper-button.indigo {
+            background-color: var(--paper-indigo-500);
+            color: white;
+            --paper-button-raised-keyboard-focus: {
+                background-color: var(--paper-pink-a200) !important;
+                color: white !important;
+            }
+            ;
+        }
+
+        body {
+            text-align: center;
+        }
+
+        h1 {
+            font-weight: bold;
+            font-size: 25pt;
+        }
+
+        h2 {
+            font-weight: bold;
+            font-size: 15pt;
+        }
+
+        button {
+            font-weight: bold;
+            font-size: 15pt;
+        }
+    </style>
+</head>
+
+<body unresolved>
+    <template id="template" is="dom-bind">
+      <div id="cards">
+        <paper-card heading="BBC micro:bit Keypad">
+          <div class="card-content">
+            <paper-toggle-button class="blue" id="connect">Connect</paper-toggle-button>
+            <paper-progress id="progress" indeterminate></paper-progress>
+          </div>
+        </paper-card>
+
+     
+        <paper-dialog id="no-bluetooth">
+          <h2>No Web Bluetooth</h2>
+          <p>The Web Bluetooth API is missing. Please enable it at
+          chrome://flags/#enable-web-bluetooth and try again.</p>
+        </paper-dialog>
+
+        <paper-dialog id="errorDialog">
+          <h2>Error</h2>
+          <p>Could not connect to bluetooth device!</p>
+        </paper-dialog>
+      </div>
+    </template>
+    <canvas id="remote"></canvas><br>
+    <span id="debug"></span>
+    <script>
+        'use strict';
+        document.addEventListener('WebComponentsReady', () => {
+            let connectToggle = document.querySelector('#connect');
+            let progress = document.querySelector('#progress');
+            let dialog = document.querySelector('#errorDialog');
+            let gattServer;
+            let commandService;
+            let writeCharacteristic;
+            let writeClientReqCharacteristic;
+            let writeClientEvtCharacteristic;
+            let busy = false;
+            let commandQueue = [];
+            progress.hidden = true;
+
+            let BOX_WIDTH = 80;
+            let BOX_HEIGHT = 80;
+            let KEY_WIDTH = 65;
+            let KEY_HEIGHT = 65;
+            let OFFSET_X = 40;
+            let OFFSET_Y = 40;
+            let canvas_width, canvas_height;
+            let push_info = [];
+            let push_text = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
+            let push_font = "bold 50px Arial";
+            let ws;
+            let keypass = [];
+            let keyc = 0;
+
+            let remote = document.getElementById("remote");
+
+            remote.width = canvas_width = BOX_WIDTH * 3 + OFFSET_X * 2;
+            remote.height = canvas_height = BOX_HEIGHT * 4 + OFFSET_Y * 2;
+
+            let ctx = remote.getContext("2d");
+            ctx.strokeStyle = "white";
+            ctx.lineJoin = "round";
+
+            for (let push_id = 0; push_id < 12; push_id++) {
+                if (push_id == 9 || push_id == 11)
+                    push_info[push_id] = {
+                        state: false,
+                        identifier: null,
+                        font: push_font,
+                        text: push_text[push_id],
+                        color_1: "Crimson",
+                        color_2: "Red"
+                    };
+                else
+                    push_info[push_id] = {
+                        state: false,
+                        identifier: null,
+                        font: push_font,
+                        text: push_text[push_id],
+                        color_1: "#1E90FF",
+                        color_2: "Aqua"
+                    };
+            }
+
+            update_view();
+
+            remote.addEventListener("touchstart", mouse_down);
+            remote.addEventListener("touchend", mouse_up);
+            remote.addEventListener("touchmove", mouse_move);
+
+            remote.addEventListener("mousedown", mouse_down);
+            remote.addEventListener("mouseup", mouse_up);
+            remote.addEventListener("mousemove", mouse_move);
+            remote.addEventListener("mouseout", mouse_up);
+
+
+
+
+            function update_view() {
+                let remote = document.getElementById("remote");
+                let ctx = remote.getContext("2d");
+                let cx, cy, x, y;
+
+                ctx.clearRect(0, 0, canvas_width, canvas_height);
+                ctx.lineWidth = 4;
+                ctx.fillStyle = "black";
+                ctx.shadowBlur = 0;
+
+                let margin, radius;
+                for (var i = 0; i < 3; i++) {
+                    if (i == 0)
+                        margin = 0;
+                    else if (i == 1)
+                        margin = 20;
+                    else
+                        margin = 28;
+
+                    radius = 45 - margin;
+
+                    ctx.beginPath();
+                    ctx.arc(margin + radius, margin + radius, radius, Math.PI, 1.5 * Math.PI);
+                    ctx.lineTo(margin + radius, margin);
+                    ctx.lineTo(canvas_width - margin - radius, margin);
+                    ctx.arc(canvas_width - margin - radius, margin + radius, radius, 1.5 * Math.PI, 0);
+                    ctx.lineTo(canvas_width - margin, canvas_height - margin - radius);
+                    ctx.arc(canvas_width - margin - radius, canvas_height - margin - radius, radius, 0, 0.5 * Math.PI);
+                    ctx.lineTo(margin + radius, canvas_height - margin);
+                    ctx.arc(margin + radius, canvas_height - margin - radius, radius, 0.5 * Math.PI, Math.PI);
+                    ctx.closePath();
+
+                    if (i == 0)
+                        ctx.fill();
+                    else
+                        ctx.stroke();
+                }
+
+                ctx.translate(OFFSET_X, OFFSET_Y);
+
+                for (let push_id = 0; push_id < 12; push_id++) {
+                    let push = push_info[push_id];
+                    let state = push.state;
+
+                    if (state) {
+                        ctx.fillStyle = push.color_2;
+                        ctx.shadowBlur = 80;
+                        ctx.shadowColor = push.color_2;
+                    } else {
+                        ctx.shadowBlur = 0;
+                        ctx.fillStyle = push.color_1;
+                    }
+
+                    cx = BOX_WIDTH * (push_id % 3) + BOX_WIDTH / 2;
+                    cy = BOX_HEIGHT * parseInt(push_id / 3) + BOX_HEIGHT / 2;
+                    x = cx - KEY_WIDTH / 2;
+                    y = cy - KEY_HEIGHT / 2;
+
+                    ctx.beginPath();
+                    ctx.lineWidth = 7;
+                    ctx.rect(x, y, KEY_WIDTH, KEY_HEIGHT);
+                    ctx.fill();
+                    ctx.stroke();
+
+                    ctx.font = push.font;
+                    ctx.textAlign = "center";
+                    ctx.textBaseline = "middle";
+                    ctx.fillStyle = "white";
+                    ctx.fillText(push.text, cx, cy);
+
+                    if (!state)
+                        push.identifier = null;
+                }
+
+                ctx.translate(-OFFSET_X, -OFFSET_Y);
+            }
+
+            function find_push_id(x, y) {
+                let cx, cy, push_id;
+
+                x -= OFFSET_X;
+                y -= OFFSET_Y;
+
+                if ((x < 0) || (x >= BOX_WIDTH * 3))
+                    return 12;
+
+                if ((y < 0) || (y >= BOX_HEIGHT * 4))
+                    return 12;
+
+                push_id = parseInt(x / BOX_WIDTH);
+                push_id += 3 * parseInt(y / BOX_WIDTH);
+
+                cx = BOX_WIDTH * (push_id % 3) + BOX_WIDTH / 2;
+                cy = BOX_HEIGHT * parseInt(push_id / 3) + BOX_HEIGHT / 2;
+
+                if (Math.abs(x - cx) < KEY_WIDTH && Math.abs(y - cy) < KEY_HEIGHT)
+                    return push_id;
+                else
+                    return 12;
+            }
+
+            function mouse_down(event) {
+                let debug = document.getElementById("debug");
+                let x, y, push_id;
+
+                if (event.changedTouches) {
+                    for (let touch_id = 0; touch_id < event.changedTouches.length; touch_id++) {
+                        let touch = event.changedTouches[touch_id];
+
+                        x = touch.pageX - touch.target.offsetLeft;
+                        y = touch.pageY - touch.target.offsetTop;
+
+                        push_id = find_push_id(x, y);
+
+                        if (push_id < 12) {
+                            let push = push_info[push_id];
+   
+                            if (push.state == false) {
+                                var key = push_info[push_id].text;
+                                send_key(key);
+                                push_info[push_id].state = true;
+                                update_view();
+                                push.identifier = touch.identifier;
+                            }
+                        }
+                    }
+                } else {
+                    x = event.offsetX;
+                    y = event.offsetY;
+
+                    push_id = find_push_id(x, y);
+
+                    if (push_id < 12) {
+                        let key = push_info[push_id].text;
+                        send_key(key);
+                        push_info[push_id].state = true;
+                        update_view();
+                    }
+                }
+
+                event.preventDefault();
+            }
+
+            function mouse_up(event) {
+                let debug = document.getElementById("debug");
+                let push_id;
+
+                if (event.changedTouches) {
+                    for (let touch_id = 0; touch_id < event.changedTouches.length; touch_id++) {
+                        let touch = event.changedTouches[touch_id];
+
+                        for (push_id = 0; push_id < 12; push_id++) {
+                            if (touch.identifier == push_info[push_id].identifier)
+                                break;
+                        }
+
+                        if (push_id < 12) {
+                            push_info[push_id].state = false;
+                            update_view();
+                        }
+                    }
+                } else {
+                    for (push_id = 0; push_id < 12; push_id++) {
+                        if (push_info[push_id].state) {
+                            push_info[push_id].state = false;
+                            update_view();
+                            break;
+                        }
+                    }
+                }
+
+                event.preventDefault();
+            }
+
+            function mouse_move(event) {
+                event.preventDefault();
+            }
+
+            function send_key(cmd) {
+                console.log(cmd);
+                let bytes = []; // char codes
+                let sbyte;
+                let cmd1;
+                let code;
+                for (let i = 0; i < cmd.length; ++i) {
+                    code = cmd.charCodeAt(i);
+                    bytes = bytes.concat([code]);
+                }
+                cmd = new Uint16Array([0x22B8, new Uint8Array(bytes)]);
+                sendCommand(cmd);
+
+            }
+
+
+            function sendCommand(cmd) {
+                if (writeClientEvtCharacteristic) {
+                    // Handle one command at a time
+                    if (busy) {
+                        // Queue commands
+                        commandQueue.push(cmd);
+                        return Promise.resolve();
+                    }
+                    busy = true;
+
+                    return writeClientEvtCharacteristic.writeValue(cmd).then(() => {
+                        busy = false;
+                        // Get next command from queue
+                        let nextCommand = commandQueue.shift();
+                        if (nextCommand) {
+                            sendCommand(nextCommand);
+                        }
+                    });
+
+                } else {
+                    return Promise.resolve();
+                }
+            }
+            /**
+             * Check if browser supports Web Bluetooth API.
+             */
+            if (navigator.bluetooth == undefined) {
+                document.getElementById("no-bluetooth").style.display = "block";
+                document.getElementById("no-bluetooth").open();
+            }
+            /**
+             * Reset the app variable states.
+             */
+            function resetVariables() {
+                busy = false;
+                progress.hidden = true;
+                gattServer = null;
+                commandService = null;
+                writeCharacteristic = null;
+                writeClientReqCharacteristic = null;
+                writeClientEvtCharacteristic = null;
+                connectToggle.checked = false;
+            }
+            /**
+             * API error handler.
+             */
+            function handleError(error) {
+                console.log(error);
+                resetVariables();
+                dialog.open();
+            }
+
+            function initEvent() {
+                let cmdPinAd = new Uint16Array([0x22B8, 0x00]);
+                sendEvent(cmdPinAd).then(() => {
+                    console.log('Event set.');
+                }).catch(handleError);
+            }
+
+            function sendEvent(cmd) {
+                if (writeClientReqCharacteristic) {
+                    // Handle one command at a time
+                    if (busy) {
+                        // Queue commands
+                        commandQueueP.push(cmd);
+                        return Promise.resolve();
+                    }
+                    busy = true;
+                    return writeClientReqCharacteristic.writeValue(cmd).then(() => {
+                        busy = false;
+                        // Get next command from queue
+                        let nextCommand = commandQueue.shift();
+                        if (nextCommand) {
+                            sendEvent(nextCommand);
+                        }
+                    });
+                } else {
+                    return Promise.resolve();
+                }
+            }
+
+            function handleCharacteristicValueChanged(event) {
+                var value = event.target.value;
+
+                let a = [];
+                // Convert raw data bytes to hex values just for the sake of showing something.
+                // In the "real" world, you'd use data.getUint8, data.getUint16 or even
+                // TextDecoder to process raw data bytes.
+                for (let i = 0; i < value.byteLength; i++) {
+                    a.push('0x' + ('00' + value.getUint8(i).toString(16)).slice(-2));
+                }
+                console.log('> ' + a.join(' '));
+            }
+
+            /**
+             * Connect to command characteristic.
+             */
+            connectToggle.addEventListener('click', () => {
+                if (gattServer != null && gattServer.connected) {
+                    if (gattServer.disconnect) {
+                        console.log('Disconnecting...');
+                        gattServer.disconnect();
+                    }
+                    resetVariables();
+                } else {
+                    console.log('Connecting...');
+                    progress.hidden = false;
+                    if (writeCharacteristic == null) {
+                        navigator.bluetooth.requestDevice({
+                                filters: [{
+                                    namePrefix: 'BBC micro:bit',
+                                }],
+                                optionalServices: ['e95d93af-251d-470a-a062-fa1922dfa9a8'] //EVENTSERVICE_SERVICE_UUID
+                            })
+                            .then(device => {
+                                console.log('Connecting to GATT Server...');
+                                return device.gatt.connect();
+                            })
+                            .then(server => {
+                                console.log('> Found GATT server');
+                                gattServer = server;
+                                //console.log(gattServer);
+                                // Get command service
+                                return gattServer.getPrimaryService('e95d93af-251d-470a-a062-fa1922dfa9a8'); //EVENTSERVICE_SERVICE_UUID
+                            })
+                            .then(service => {
+                                console.log('> Found command service');
+                                commandService = service;
+                                return commandService.getCharacteristic('e95d9775-251d-470a-a062-fa1922dfa9a8'); //MICROBITEVENT_CHARACTERISTIC_UUID
+                            })
+                            .then(characteristic => {
+                                console.log('> Found write characteristic');
+                                writeCharacteristic = characteristic;
+                                writeCharacteristic.startNotifications();
+                                writeCharacteristic.addEventListener('characteristicvaluechanged', handleCharacteristicValueChanged);
+                                return commandService.getCharacteristic('e95d5404-251d-470a-a062-fa1922dfa9a8'); //CLIENTEVENT_CHARACTERISTIC_UUID
+                            })
+                            .then(ClientEvtCharacteristic => {
+                                console.log('> Found Client Event ClientEvtCharacteristic');
+                                writeClientEvtCharacteristic = ClientEvtCharacteristic;
+                                return commandService.getCharacteristic('e95d23c4-251d-470a-a062-fa1922dfa9a8'); //CLIENTREQUIREMENTS_CHARACTERISTIC_UUID
+                            })
+                            .then(ClientReqCharacteristic => {
+                                console.log('> Found Client Requirement characteristic');
+                                writeClientReqCharacteristic = ClientReqCharacteristic;
+                                initEvent();
+                                progress.hidden = true;
+                            })
+
+                            .catch(handleError);
+                    } else {
+                        progress.hidden = true;
+                    }
+                }
+            });
+        });
+    </script>
+
+
+</body>
+
+</html>
