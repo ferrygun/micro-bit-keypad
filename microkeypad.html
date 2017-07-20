@@ -538,10 +538,14 @@
                             })
                             .then(characteristic => {
                                 console.log('> Found write characteristic');
-                                writeCharacteristic = characteristic;
-                                writeCharacteristic.startNotifications();
-                                writeCharacteristic.addEventListener('characteristicvaluechanged', handleCharacteristicValueChanged);
-                                return commandService.getCharacteristic('e95d5404-251d-470a-a062-fa1922dfa9a8'); //CLIENTEVENT_CHARACTERISTIC_UUID
+                                return characteristic.startNotifications().then(_ => {
+                                  console.log('> Notifications started');
+                                  characteristic.addEventListener('characteristicvaluechanged',
+                                      handleCharacteristicValueChanged);
+                                });
+                            })
+                            .then(service => {
+                            	return commandService.getCharacteristic('e95d5404-251d-470a-a062-fa1922dfa9a8'); //CLIENTEVENT_CHARACTERISTIC_UUID
                             })
                             .then(ClientEvtCharacteristic => {
                                 console.log('> Found Client Event ClientEvtCharacteristic');
